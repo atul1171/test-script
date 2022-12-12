@@ -1,24 +1,28 @@
 import fg from "fast-glob";
-import mongoose from "mongoose";
 import * as dotenv from "dotenv";
 dotenv.config();
-import aws from "aws-sdk";
+import * as aws from "aws-sdk";
 import { createReadStream } from "fs";
 const s3 = new aws.S3({
   accessKeyId: process.env.S3_ACCESS,
   secretAccessKey: process.env.S3_SECRET,
 });
-const db = mongoose.createConnection(process.env.MONGO_URI);
-import emailSchema from "./emailtemp.cjs";
+import { AppDataSource } from './connection';
+AppDataSource.initialize();
+// const db = mongoose.createConnection(process.env.MONGO_URI);
+import {EmailTemplateEntity, TemplateType} from './emailtemp.entity'
+import { PutObjectRequest } from "aws-sdk/clients/s3";
 const run = async () => {
-  const Email = db.model("emailtemplates", emailSchema);
+  const Email = AppDataSource.getRepository(EmailTemplateEntity);
   const files = await fg(["emails/**/html.pug"], { dot: true });
   const total = files.length;
   let docs = 0;
 
   console.log("-----------------processing started ------------------------");
-  files.map(async (path, i) => {
+  // process.exit(0)
+  files.map(async (path: string, i:number) => {
     setTimeout(async () => {
+      const bucket = <string>process.env.S3_EMAIL_BUCKET || 'intellect-email-templates';
       const keys = path.split("/");
       const lang = keys[keys.length - 2];
       const s3keyBase = path.replace("html.pug", "");
@@ -27,8 +31,8 @@ const run = async () => {
         createReadStream(`${s3keyBase}html.pug`),
         createReadStream(`${s3keyBase}subject.pug`),
       ];
-      const emailOptions = {
-        Bucket: process.env.S3_BUCKET,
+      const emailOptions: PutObjectRequest = {
+        Bucket: bucket,
         Body: htmlStream,
         Key: `${s3keyBase}html`,
         ContentType: "text/plain;charset=utf-8",
@@ -37,8 +41,8 @@ const run = async () => {
           type: "pug",
         },
       };
-      const subjectOptions = {
-        Bucket: process.env.S3_BUCKET,
+      const subjectOptions: PutObjectRequest = {
+        Bucket: bucket,
         Body: subjectStream,
         Key: `${s3keyBase}subject`,
         ContentType: "text/plain;charset=utf-8",
@@ -51,60 +55,46 @@ const run = async () => {
         s3.upload(emailOptions).promise(),
         s3.upload(subjectOptions).promise(),
       ]);
-      const exisiting = await Email.findOne(
-        {
+      let template = await Email.findOne({
+        where: {
           name: name,
+          lang: lang,
         },
-        { "templates.lang": 1 }
-      );
-      const findQuery = { name: name };
-      let upsertQuery = {};
-      if (
-        exisiting &&
-        exisiting.templates.some((template) => template.lang == lang)
-      ) {
-        findQuery["templates.lang"] = lang;
-        upsertQuery = {
-          $set: {
-            "templates.$.lang": lang,
-            "templates.$.type": "pug",
-            "templates.$.email": {
-              key: email.Key,
-              location: email.Location,
-            },
-            "templates.$.subject": {
-              key: subject.Key,
-              location: subject.Location,
-            },
-          },
-        };
-      } else {
-        upsertQuery = {
-          $push: {
-            templates: {
-              lang: lang,
-              type: "pug",
-              email: { key: email.Key, location: email.Location },
-              subject: { key: subject.Key, location: subject.Location },
-            },
-          },
-        };
-      }
-
-      await Email.updateOne(findQuery, upsertQuery, {
-        upsert: true,
-        returnOriginal: false,
+        select: ['id'],
       });
+      if (template) {
+        await Email.update(
+          {
+            id: template.id,
+          },
+          {
+            type: TemplateType.PUG,
+            email: email.Location,
+            subject: subject.Location,
+            variables: [],
+          },
+        );
+      } else {
+        const newTemplate = Email.create({
+          name: name,
+          lang: lang,
+          type: TemplateType.PUG,
+          email: email.Location,
+          subject: subject.Location,
+        });
+        await Email.insert(newTemplate);
+      }
       if (lang == "en") {
         docs++;
       }
       console.log(
-        "%d out %d templates processed - %s lang: %s, docs : %d",
+        "%d out %d templates processed - %s lang: %s,bucket: %s",
         i + 1,
         total,
         name,
         lang,
-        docs
+        docs,
+        bucket
       );
       if (i + 1 === total) {
         console.log(
