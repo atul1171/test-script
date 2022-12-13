@@ -36,7 +36,7 @@ const run = async () => {
         Body: htmlStream,
         Key: `${s3keyBase}html`,
         ContentType: "text/plain;charset=utf-8",
-        ACL: "public-read",
+        // ACL: "public-read",
         Metadata: {
           type: "pug",
         },
@@ -46,7 +46,7 @@ const run = async () => {
         Body: subjectStream,
         Key: `${s3keyBase}subject`,
         ContentType: "text/plain;charset=utf-8",
-        ACL: "public-read",
+        // ACL: "public-read",
         Metadata: {
           type: "pug",
         },
