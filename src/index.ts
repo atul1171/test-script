@@ -22,6 +22,7 @@ const run = async () => {
   // process.exit(0)
   files.map(async (path: string, i:number) => {
     setTimeout(async () => {
+      const NODE_ENV = process.env.NODE_ENV || 'staging';
       const bucket = <string>process.env.S3_EMAIL_BUCKET || 'intellect-email-templates';
       const keys = path.split("/");
       const lang = keys[keys.length - 2];
@@ -34,7 +35,7 @@ const run = async () => {
       const emailOptions: PutObjectRequest = {
         Bucket: bucket,
         Body: htmlStream,
-        Key: `${s3keyBase}html`,
+        Key: `${NODE_ENV}/${s3keyBase}html`,
         ContentType: "text/plain;charset=utf-8",
         // ACL: "public-read",
         Metadata: {
@@ -44,7 +45,7 @@ const run = async () => {
       const subjectOptions: PutObjectRequest = {
         Bucket: bucket,
         Body: subjectStream,
-        Key: `${s3keyBase}subject`,
+        Key: `${NODE_ENV}/${s3keyBase}subject`,
         ContentType: "text/plain;charset=utf-8",
         // ACL: "public-read",
         Metadata: {
